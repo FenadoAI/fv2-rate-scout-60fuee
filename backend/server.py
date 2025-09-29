@@ -9,6 +9,8 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 import uuid
 from datetime import datetime
+import aiohttp
+import asyncio
 
 # AI agents
 from ai_agents.agents import AgentConfig, SearchAgent, ChatAgent
@@ -72,6 +74,86 @@ class SearchResponse(BaseModel):
     search_results: Optional[dict] = None
     sources_count: int
     error: Optional[str] = None
+
+
+# Hyperliquid models
+class MarketData(BaseModel):
+    symbol: str
+    mark_price: float
+    funding_rate: float
+    open_interest: float
+    premium: float
+    day_volume: float
+    price_change_24h: float = 0.0
+
+
+class FundingArbitrageResponse(BaseModel):
+    success: bool
+    markets: List[MarketData]
+    total_markets: int
+    filtered_markets: int
+    highest_funding_rate: Optional[MarketData] = None
+    last_updated: datetime
+    error: Optional[str] = None
+
+# Hyperliquid API functions
+async def fetch_hyperliquid_data():
+    """Fetch market data from Hyperliquid API"""
+    url = "https://api.hyperliquid.xyz/info"
+    payload = {"type": "metaAndAssetCtxs"}
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, json=payload) as response:
+            if response.status == 200:
+                data = await response.json()
+                return data
+            else:
+                raise HTTPException(status_code=500, detail=f"Failed to fetch Hyperliquid data: {response.status}")
+
+
+def parse_market_data(hyperliquid_data) -> List[MarketData]:
+    """Parse Hyperliquid API response into MarketData objects"""
+    markets = []
+
+    if not hyperliquid_data or len(hyperliquid_data) < 2:
+        return markets
+
+    universe = hyperliquid_data[0].get("universe", [])
+    asset_contexts = hyperliquid_data[1] if len(hyperliquid_data) > 1 else []
+
+    for i, asset_ctx in enumerate(asset_contexts):
+        if i < len(universe):
+            symbol = universe[i]["name"]
+
+            try:
+                # Parse market data with safe float conversion
+                mark_price = float(asset_ctx.get("markPx") or "0")
+                funding_rate = float(asset_ctx.get("funding") or "0")
+                open_interest = float(asset_ctx.get("openInterest") or "0")
+                premium = float(asset_ctx.get("premium") or "0")
+                day_volume = float(asset_ctx.get("dayNtlVlm") or "0")
+                prev_day_price = float(asset_ctx.get("prevDayPx") or "0")
+
+                # Calculate 24h price change
+                price_change_24h = 0.0
+                if prev_day_price > 0 and mark_price > 0:
+                    price_change_24h = ((mark_price - prev_day_price) / prev_day_price) * 100
+
+                markets.append(MarketData(
+                    symbol=symbol,
+                    mark_price=mark_price,
+                    funding_rate=funding_rate,
+                    open_interest=open_interest,
+                    premium=premium,
+                    day_volume=day_volume,
+                    price_change_24h=price_change_24h
+                ))
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Error parsing data for {symbol}: {e}")
+                continue
+
+    return markets
+
 
 # Routes
 @api_router.get("/")
@@ -172,6 +254,55 @@ async def search_and_summarize(request: SearchRequest):
             query=request.query,
             summary="",
             sources_count=0,
+            error=str(e)
+        )
+
+
+@api_router.get("/funding-arbitrage", response_model=FundingArbitrageResponse)
+async def get_funding_arbitrage():
+    """
+    Get funding arbitrage opportunities from Hyperliquid
+    Filters for markets with >50M open interest and sorts by funding rate
+    """
+    try:
+        # Fetch data from Hyperliquid
+        hyperliquid_data = await fetch_hyperliquid_data()
+
+        # Parse market data
+        all_markets = parse_market_data(hyperliquid_data)
+
+        # Filter for open interest > 50M
+        MIN_OPEN_INTEREST = 50_000_000  # 50M
+        filtered_markets = [
+            market for market in all_markets
+            if market.open_interest > MIN_OPEN_INTEREST
+        ]
+
+        # Sort by funding rate (highest first)
+        filtered_markets.sort(key=lambda x: x.funding_rate, reverse=True)
+
+        # Find highest funding rate
+        highest_funding = filtered_markets[0] if filtered_markets else None
+
+        logger.info(f"Found {len(filtered_markets)} markets with >50M open interest out of {len(all_markets)} total")
+
+        return FundingArbitrageResponse(
+            success=True,
+            markets=filtered_markets,
+            total_markets=len(all_markets),
+            filtered_markets=len(filtered_markets),
+            highest_funding_rate=highest_funding,
+            last_updated=datetime.utcnow()
+        )
+
+    except Exception as e:
+        logger.error(f"Error fetching funding arbitrage data: {e}")
+        return FundingArbitrageResponse(
+            success=False,
+            markets=[],
+            total_markets=0,
+            filtered_markets=0,
+            last_updated=datetime.utcnow(),
             error=str(e)
         )
 
