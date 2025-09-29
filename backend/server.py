@@ -262,7 +262,7 @@ async def search_and_summarize(request: SearchRequest):
 async def get_funding_arbitrage():
     """
     Get funding arbitrage opportunities from Hyperliquid
-    Filters for markets with >50M open interest and sorts by funding rate
+    Filters for markets with >$50M USD open interest and sorts by funding rate
     """
     try:
         # Fetch data from Hyperliquid
@@ -271,11 +271,11 @@ async def get_funding_arbitrage():
         # Parse market data
         all_markets = parse_market_data(hyperliquid_data)
 
-        # Filter for open interest > 50M
-        MIN_OPEN_INTEREST = 50_000_000  # 50M
+        # Filter for USD value of open interest > $50M
+        MIN_USD_OPEN_INTEREST = 50_000_000  # $50M USD
         filtered_markets = [
             market for market in all_markets
-            if market.open_interest > MIN_OPEN_INTEREST
+            if (market.open_interest * market.mark_price) > MIN_USD_OPEN_INTEREST
         ]
 
         # Sort by funding rate (highest first)
@@ -284,7 +284,7 @@ async def get_funding_arbitrage():
         # Find highest funding rate
         highest_funding = filtered_markets[0] if filtered_markets else None
 
-        logger.info(f"Found {len(filtered_markets)} markets with >50M open interest out of {len(all_markets)} total")
+        logger.info(f"Found {len(filtered_markets)} markets with >$50M USD open interest out of {len(all_markets)} total")
 
         return FundingArbitrageResponse(
             success=True,

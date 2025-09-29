@@ -121,7 +121,7 @@ const FundingArbitrageDashboard = () => {
             Hyperliquid Funding Arbitrage
           </h1>
           <p className="text-xl text-slate-300">
-            Real-time funding opportunities for markets with >50M open interest
+            Real-time funding opportunities for markets with >$50M USD open interest
           </p>
 
           <div className="flex items-center justify-center space-x-4">
@@ -178,7 +178,7 @@ const FundingArbitrageDashboard = () => {
             <CardContent>
               <div className="text-2xl font-bold text-green-400">{data?.filtered_markets || 0}</div>
               <p className="text-xs text-slate-400 mt-1">
-                >50M open interest
+                >$50M USD open interest
               </p>
             </CardContent>
           </Card>
@@ -282,7 +282,7 @@ const FundingArbitrageDashboard = () => {
                   )) || (
                     <TableRow className="border-slate-700">
                       <TableCell colSpan={7} className="text-center text-slate-400 py-8">
-                        No markets found with >50M open interest
+                        No markets found with >$50M USD open interest
                       </TableCell>
                     </TableRow>
                   )}
